@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using FactoryGame.Engine;
 using System.Diagnostics;
+using System.Reflection.Metadata.Ecma335;
 
 namespace NexaForge
 {
@@ -13,9 +14,9 @@ namespace NexaForge
     {
         private readonly GraphicsDeviceManager _graphics;
 
-        private BasicEffect _effect;
-        private VertexBuffer _cubeVertexBuffer;
-        private IndexBuffer _cubeIndexBuffer;
+        protected BasicEffect _effect;
+        protected VertexBuffer _cubeVertexBuffer;
+        protected IndexBuffer _cubeIndexBuffer;
 
         protected SpriteBatch _spriteBatch;
         protected SpriteFont _font;
@@ -34,6 +35,18 @@ namespace NexaForge
         private KeyboardState _prevKeyboard;
 
         protected float _totalOreInStorage;
+        protected float _oreInMiner;
+        protected float _oreInStorage;
+        protected float _oreInBelt;
+        protected float _totalOreProduction;
+        private float _previousOreAmount;
+        private double _productionTimer;
+
+        private MouseState _previousMouseState;
+
+        private Building _previewBuilding;
+        private int _previewGridX = -1;
+        private int _previewGridZ = -1;
 
         private int _hoveredGridX = -1;
         private int _hoveredGridZ = -1;
@@ -42,6 +55,8 @@ namespace NexaForge
         private Building _highlightedBuilding;
 
         private BuildingsGui _buildingsGui;
+
+        private Model _factoryModel;
 
         public Game1()
         {
@@ -68,6 +83,8 @@ namespace NexaForge
 
         protected override void LoadContent()
         {
+            _factoryModel = Content.Load<Model>("Models/WoodHouse");
+
             _effect = new BasicEffect(GraphicsDevice)
             {
                 VertexColorEnabled = false,
@@ -142,12 +159,10 @@ namespace NexaForge
             if (IsMouseOverUI(mouse.X, mouse.Y))
                 return;
 
-            // Zuerst prüfen, ob ein Gebäude unter der Maus liegt
             if (TryGetHoveredBuilding(mouse.X, mouse.Y, out Building building))
             {
                 _hoveredBuilding = building;
 
-                // Die Grid-Zelle des Gebäudes ebenfalls speichern
                 _hoveredGridX = building.GridX;
                 _hoveredGridZ = building.GridZ;
                 _hasHoveredCell = true;
@@ -155,7 +170,6 @@ namespace NexaForge
                 return;
             }
 
-            // Wenn kein Gebäude getroffen wurde, Boden prüfen
             if (TryGetGroundCell(mouse.X, mouse.Y, out int gx, out int gz))
             {
                 _hoveredGridX = gx;
@@ -178,12 +192,188 @@ namespace NexaForge
             foreach (var b in _buildings) b.Tick(dt);
             SimulateFactory(dt);
 
+            UpdateStatsDropdown();
+            UpdateBuildingPreview();
+
             base.Update(gameTime);
+        }
+
+        private void UpdateStatsDropdown()
+        {
+            UpdateStatsOptions();
+            MouseState mouse = Mouse.GetState();
+
+            bool clicked =
+                mouse.LeftButton == ButtonState.Pressed &&
+                _previousMouseState.LeftButton == ButtonState.Released;
+
+            string selectedText = _statsOptions[_statsSelectedIndex];
+            Vector2 textSize = _font.MeasureString(selectedText);
+
+            Rectangle button = new Rectangle(
+                10,
+                8,
+                (int)textSize.X + 45,
+                (int)textSize.Y + 14
+            );
+
+            if (clicked && button.Contains(mouse.Position))
+            {
+                _statsDropdownOpen = !_statsDropdownOpen;
+            }
+
+            if (_statsDropdownOpen)
+            {
+                int maxTextWidth = 0;
+                int itemHeight = 0;
+
+                for (int i = 0; i < _statsOptions.Length; i++)
+                {
+                    Vector2 size =
+                        _font.MeasureString(
+                            _statsOptions[i]
+                        );
+
+                    maxTextWidth = Math.Max(
+                        maxTextWidth,
+                        (int)size.X
+                    );
+
+                    itemHeight = Math.Max(
+                        itemHeight,
+                        (int)size.Y + 16
+                    );
+                }
+
+                int menuWidth =
+                    maxTextWidth + 24;
+
+                int menuHeight =
+                    _statsOptions.Length * itemHeight +
+                    (_statsOptions.Length - 1) * 2;
+
+                int menuX = button.X;
+                int menuY = button.Bottom + 4;
+
+                if (menuX + menuWidth >
+                    GraphicsDevice.Viewport.Width)
+                {
+                    menuX =
+                        GraphicsDevice.Viewport.Width -
+                        menuWidth - 5;
+                }
+
+                if (menuY + menuHeight >
+                    GraphicsDevice.Viewport.Height)
+                {
+                    menuY =
+                        button.Y -
+                        menuHeight - 4;
+                }
+
+                for (int i = 0; i < _statsOptions.Length; i++)
+                {
+                    Rectangle item = new Rectangle(
+                        menuX,
+                        menuY + i * (itemHeight + 2),
+                        menuWidth,
+                        itemHeight
+                    );
+
+                    if (clicked && item.Contains(mouse.Position))
+                    {
+                        _statsSelectedIndex = i;
+                        _statsDropdownOpen = false;
+                        break;
+                    }
+                }
+
+                Rectangle menu = new Rectangle(
+                    menuX,
+                    menuY,
+                    menuWidth,
+                    menuHeight
+                );
+
+                if (clicked &&
+                    !button.Contains(mouse.Position) &&
+                    !menu.Contains(mouse.Position))
+                {
+                    _statsDropdownOpen = false;
+                }
+            }
+
+            _previousMouseState = mouse;
+        }
+
+        private void UpdateBuildingPreview()
+        {
+            var mouse = Mouse.GetState();
+
+            if (_selectedType == BuildingType.None ||
+                IsMouseOverUI(mouse.X, mouse.Y))
+            {
+                _previewBuilding = null;
+                _previewGridX = -1;
+                _previewGridZ = -1;
+                return;
+            }
+
+            if (!TryGetGroundCell(
+                mouse.X,
+                mouse.Y,
+                out int gx,
+                out int gz))
+            {
+                _previewBuilding = null;
+                return;
+            }
+
+            if (_grid.IsOccupied(gx, gz))
+            {
+                _previewBuilding = null;
+                return;
+            }
+
+            if (_previewBuilding == null ||
+                _previewGridX != gx ||
+                _previewGridZ != gz ||
+                _previewBuilding.Type != _selectedType)
+            {
+                var worldPos = _grid.CellToWorld(gx, gz);
+
+                _previewBuilding = _selectedType switch
+                {
+                    BuildingType.Miner => new Miner(gx, gz, worldPos),
+                    BuildingType.Belt => new Belt(gx, gz, worldPos),
+                    BuildingType.Storage => new Storage(gx, gz, worldPos),
+                    _ => null
+                };
+
+                _previewGridX = gx;
+                _previewGridZ = gz;
+            }
         }
 
         private bool canRotateBuilding(BuildingType buildingType)
         {
             return buildingType == BuildingType.Belt;
+        }
+
+        private void toggleBuildingGui(Building existing) {
+            if (!_buildingsGui.IsOpen && _highlightedBuilding != existing)
+            {
+                _buildingsGui.Open(existing);
+            }
+            else if (_buildingsGui.IsOpen && _highlightedBuilding != existing)
+            {
+                _buildingsGui.Close();
+                _buildingsGui.Open(existing);
+            }
+            else if (_highlightedBuilding != existing)
+                _buildingsGui.Close();
+
+            ToggleHighlight(existing);
         }
 
         private void HandleBuildingSelection()
@@ -201,36 +391,106 @@ namespace NexaForge
                 Debug.WriteLine("Rotating the belt 90 degrees clockwise");
             }
 
-            if (IsPressed(keyboard, Keys.E))
+            if (keyboard.IsKeyDown(Keys.LeftShift))
             {
-                if (_highlightedBuilding != null)
-                    Debug.WriteLine($"Highlighting building at ({_highlightedBuilding.GridX}, {_highlightedBuilding.GridZ})");
+                //Debug.WriteLine($"Highlight: {(_highlightedBuilding == null ? "None" : _highlightedBuilding.Type.ToString())}");
 
                 if (TryGetGroundCell(mouse.X, mouse.Y, out int gx, out int gz) &&
                     _grid.Get(gx, gz) is Building existing)
                 {
-                    ToggleHighlight(existing);
-                    if (!_buildingsGui.IsOpen /*&& _highlightedBuilding == existing*/)
-                    {
-                        _buildingsGui.Open(existing);
-                    }
-                    /*else if (_buildingsGui.IsOpen && _highlightedBuilding != existing)
-                    {
-                        _buildingsGui.Close();
-                        _buildingsGui.Open(existing);
-                        _highlightedBuilding = existing;
-                    }*/
-                    else
-                        _buildingsGui.Close();
+                    toggleBuildingGui(existing);
+                }
+                else if (_highlightedBuilding != null)
+                {
+                    _buildingsGui.Close();
+                    ToggleHighlight(_highlightedBuilding);
+                }
+                else {
+                    _buildingsGui.Close();
+                    ToggleHighlight(_highlightedBuilding);
+                }
+            }
+
+            if (IsPressed(keyboard, Keys.E))
+            {
+                if (TryGetGroundCell(mouse.X, mouse.Y, out int gx, out int gz) &&
+                    _grid.Get(gx, gz) is Building existing)
+                {
+                    toggleBuildingGui(existing);
                 } 
                 else if (_highlightedBuilding != null)
                 {
                     _highlightedBuilding = null;
                     _buildingsGui.Close();
                 }
+                else
+                {
+                    _buildingsGui.Close();
+                    ToggleHighlight(_highlightedBuilding);
+                }
             }
 
             _prevKeyboard = keyboard;
+        }
+
+        private void DrawBuildingPreview()
+        {
+            if (_previewBuilding == null)
+                return;
+
+            var b = _previewBuilding;
+
+            var size = new Vector3(
+                _grid.CellSize * 0.9f,
+                _grid.CellSize * 0.9f,
+                _grid.CellSize * 0.9f
+            );
+
+            /*var size = new Vector3(
+                _grid.CellSize * 0.9f,
+                GetHeight(b),
+                _grid.CellSize * 0.9f
+            );
+
+            DrawCube(b.Transform.Position, size, b.Color);*/
+
+            DrawModel(
+                _factoryModel,
+                b.Transform.Position,
+                size,
+                b.Color * 0.5f
+            );
+        }
+
+        private void DrawCubePreview(
+            Vector3 position,
+            Vector3 size,
+            Color color)
+        {
+            var effect = new BasicEffect(GraphicsDevice);
+
+            effect.World =
+                Matrix.CreateScale(size) *
+                Matrix.CreateTranslation(position);
+
+            effect.View = _camera.View;
+            effect.Projection = _camera.GetProjection(GraphicsDevice);
+            effect.DiffuseColor = color.ToVector3();
+            effect.Alpha = 0.4f;
+            effect.LightingEnabled = true;
+            effect.EnableDefaultLighting();
+
+            GraphicsDevice.BlendState = BlendState.AlphaBlend;
+            GraphicsDevice.DepthStencilState = DepthStencilState.Default;
+            GraphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
+
+            foreach (var pass in effect.CurrentTechnique.Passes)
+            {
+                pass.Apply();
+                DrawCube(position, size, color);
+            }
+
+            effect.Dispose();
         }
 
         private bool IsPressed(KeyboardState current, Keys key) =>
@@ -239,8 +499,14 @@ namespace NexaForge
         private void HandlePlacement()
         {
             var mouse = Mouse.GetState();
-            bool leftClicked = mouse.LeftButton == ButtonState.Pressed && _prevMouse.LeftButton == ButtonState.Released;
-            bool rightClicked = mouse.RightButton == ButtonState.Pressed && _prevMouse.RightButton == ButtonState.Released;
+
+            bool leftClicked =
+                mouse.LeftButton == ButtonState.Pressed &&
+                _prevMouse.LeftButton == ButtonState.Released;
+
+            bool rightClicked =
+                mouse.RightButton == ButtonState.Pressed &&
+                _prevMouse.RightButton == ButtonState.Released;
 
             // Klick auf einen der Auswahl-Buttons unten links -> nur Auswahl ändern, nicht in der Welt bauen
             if (leftClicked && TryHandleToolbarClick(mouse.X, mouse.Y))
@@ -255,6 +521,8 @@ namespace NexaForge
                 _prevMouse = mouse;
                 return;
             }
+
+            UpdateBuildingPreview();
 
             // Linksklick = platzieren
             if (leftClicked)
@@ -277,15 +545,15 @@ namespace NexaForge
                         {
                             _buildings.Add(building);
                             _grid.Place(gx, gz, building);
+
+                            _previewBuilding = null;
+                            _previewGridX = -1;
+                            _previewGridZ = -1;
                         }
                     }
                     else if (_grid.Get(gx, gz) is Building existing)
                     {
-                        ToggleHighlight(existing);
-                        if (!_buildingsGui.IsOpen)
-                            _buildingsGui.Open(existing);
-                        else
-                            _buildingsGui.Close();
+                        toggleBuildingGui(existing);
                     }
                 }
             }
@@ -514,48 +782,64 @@ namespace NexaForge
             return true;
         }
 
-        // Vereinfachte Fabriksimulation: Miner -> angrenzendes Band (Richtung +X) -> weitere Bänder -> Lager
+        private void UpdateOreStatistics(float dt)
+        {
+            _oreInBelt = _buildings.OfType<Belt>().Sum(b => b.ItemAmount);
+            _oreInStorage = _buildings.OfType<Storage>().Sum(s => s.Stored);
+            _oreInMiner = _buildings.OfType<Miner>().Sum(m => m.OreBuffer);
+            _totalOreInStorage = _oreInBelt + _oreInStorage + _oreInMiner;
+
+            _productionTimer += dt;
+
+            if (_productionTimer >= 60.0)
+            {
+                float currentOre = _totalOreInStorage;
+
+                _totalOreProduction = currentOre - _previousOreAmount;
+
+                _previousOreAmount = currentOre;
+                _productionTimer = 0;
+            }
+
+            _totalOreProduction = _buildings.OfType<Miner>().Sum(m => m.getRate(dt, _grid));
+        }
+
         private void SimulateFactory(float dt)
         {
             foreach (var building in _buildings)
             {
                 if (building is Miner miner)
                 {
-                    // Erz aus dem prozeduralen Vorkommen unter dem Miner fördern (endliche Ressource!)
                     float wanted = Math.Min(miner.MineRatePerSecond * dt, miner.BufferCapacity - miner.OreBuffer);
                     float mined = _grid.ExtractOre(miner.GridX, miner.GridZ, wanted, miner);
                     miner.AddOre(mined);
 
                     if (TryGetNeighbor(miner.GridX, miner.GridZ, new Vector3(1, 0, 0), out Building target) && target is Belt belt)
                     {
-                        float space = belt.Capacity - belt.ItemAmount;
-                        float moved = miner.Extract(Math.Min(space, miner.MineRatePerSecond * dt * 2f));
-                        belt.ItemAmount += moved;
+                        belt.mineItem(dt, miner);
+                    }
+                    else if (TryGetNeighbor(miner.GridX, miner.GridZ, new Vector3(1, 0, 0), out Building neighbor) && neighbor is Storage storage)
+                    {
+                        storage.mineItem(dt, miner);
                     }
                 }
                 else if (building is Belt sourceBelt && sourceBelt.ItemAmount > 0)
                 {
                     if (TryGetNeighbor(sourceBelt.GridX, sourceBelt.GridZ, sourceBelt.Direction, out Building target))
                     {
-                        float amount = Math.Min(sourceBelt.ItemAmount, sourceBelt.Speed * dt);
-
                         if (target is Belt nextBelt)
                         {
-                            float space = nextBelt.Capacity - nextBelt.ItemAmount;
-                            float moved = Math.Min(amount, space);
-                            nextBelt.ItemAmount += moved;
-                            sourceBelt.ItemAmount -= moved;
+                            sourceBelt.moveItem(dt, nextBelt);
                         }
                         else if (target is Storage storage)
                         {
-                            float accepted = storage.Deposit(amount);
-                            sourceBelt.ItemAmount -= accepted;
+                            sourceBelt.storeItem(dt, storage);
                         }
                     }
                 }
             }
 
-            _totalOreInStorage = _buildings.OfType<Storage>().Sum(s => s.Stored);
+            UpdateOreStatistics(dt);
         }
 
         private bool TryGetNeighbor(int x, int z, Vector3 direction, out Building neighbor)
@@ -588,7 +872,7 @@ namespace NexaForge
                 _hoveredGridX,
                 _hoveredGridZ);
 
-            float s = _grid.CellSize * 0.94f;
+            float s = (_hoveredBuilding is Storage storage) ? _grid.CellSize * 2f : _grid.CellSize * 0.94f;
             float thickness = 0.06f;
             float height = 0.04f;
 
@@ -705,14 +989,31 @@ namespace NexaForge
 
             foreach (var b in _buildings)
             {
+                /*var size = new Vector3(
+                        _grid.CellSize * 0.9f,
+                        GetHeight(b),
+                        _grid.CellSize * 0.9f
+                    );
+
+                    DrawCube(b.Transform.Position, size, b.Color);*/
                 var size = new Vector3(
                     _grid.CellSize * 0.9f,
-                    GetHeight(b),
+                    _grid.CellSize * 0.9f,
                     _grid.CellSize * 0.9f
                 );
 
-                DrawCube(b.Transform.Position, size, b.Color);
+                DrawModel(
+                    _factoryModel,
+                    b.Transform.Position,
+                    size,
+                    b.Color,
+                    90f
+                );
             }
+
+            GraphicsDevice.BlendState = BlendState.AlphaBlend;
+            DrawBuildingPreview();
+            GraphicsDevice.BlendState = BlendState.Opaque;
 
             DrawHoveredCell();
 
@@ -723,7 +1024,129 @@ namespace NexaForge
             base.Draw(gameTime);
         }
 
-        // Zeichnet die prozedural erzeugten Erzflecken als flache, eingefärbte Flächen auf dem Boden
+        private void DrawModel(
+            Model model,
+            Vector3 position,
+            Vector3 targetSize,
+            Color color,
+            float rotY = 0f)
+        {
+            float rotationY = MathHelper.ToRadians(rotY);
+            position.Y += 0.3f;
+            targetSize /= 2;
+
+            BoundingBox bounds = GetModelBounds(model);
+
+            Vector3 modelSize = bounds.Max - bounds.Min;
+
+            if (modelSize.X <= 0 ||
+                modelSize.Y <= 0 ||
+                modelSize.Z <= 0)
+                return;
+
+            float scaleX = targetSize.X / modelSize.X;
+            float scaleY = targetSize.Y / modelSize.Y;
+            float scaleZ = targetSize.Z / modelSize.Z;
+
+            float scale = Math.Min(
+                scaleX,
+                Math.Min(scaleY, scaleZ)
+            );
+
+            Vector3 center = (bounds.Min + bounds.Max) * 0.5f;
+
+            Matrix world =
+                Matrix.CreateTranslation(-center) *
+                Matrix.CreateScale(scale) *
+                Matrix.CreateRotationY(rotationY) *
+                Matrix.CreateTranslation(position);
+
+            foreach (ModelMesh mesh in model.Meshes)
+            {
+                foreach (BasicEffect effect in mesh.Effects)
+                {
+                    effect.World = world;
+                    effect.View = _camera.View;
+                    effect.Projection = _camera.GetProjection(GraphicsDevice);
+
+                    effect.EnableDefaultLighting();
+                    effect.DiffuseColor = color.ToVector3();
+                    effect.Alpha = color.A / 255f;
+                }
+
+                mesh.Draw();
+            }
+        }
+
+        private BoundingBox GetModelBounds(Model model)
+        {
+            BoundingBox? totalBounds = null;
+
+            foreach (ModelMesh mesh in model.Meshes)
+            {
+                foreach (ModelMeshPart part in mesh.MeshParts)
+                {
+                    VertexBuffer vertexBuffer =
+                        part.VertexBuffer;
+
+                    VertexDeclaration declaration =
+                        vertexBuffer.VertexDeclaration;
+
+                    VertexPositionNormalTexture[] vertices =
+                        new VertexPositionNormalTexture[
+                            vertexBuffer.VertexCount
+                        ];
+
+                    vertexBuffer.GetData(vertices);
+
+                    foreach (VertexPositionNormalTexture vertex in vertices)
+                    {
+                        Vector3 position =
+                            Vector3.Transform(
+                                vertex.Position,
+                                mesh.ParentBone?.Transform ??
+                                Matrix.Identity
+                            );
+
+                        if (totalBounds == null)
+                        {
+                            totalBounds =
+                                new BoundingBox(
+                                    position,
+                                    position
+                                );
+                        }
+                        else
+                        {
+                            BoundingBox bounds =
+                                totalBounds.Value;
+
+                            bounds.Min =
+                                Vector3.Min(
+                                    bounds.Min,
+                                    position
+                                );
+
+                            bounds.Max =
+                                Vector3.Max(
+                                    bounds.Max,
+                                    position
+                                );
+
+                            totalBounds = bounds;
+                        }
+                    }
+                }
+            }
+
+            return totalBounds ??
+                   new BoundingBox(
+                       Vector3.Zero,
+                       Vector3.Zero
+                   );
+        }
+
+        // Draw Ores
         private void DrawOreDeposits()
         {
             for (int x = 0; x < _grid.Width; x++)
@@ -742,14 +1165,157 @@ namespace NexaForge
             }
         }
 
+        private bool _statsDropdownOpen = false;
+
+        private int _statsSelectedIndex = 0;
+
+        private string[] _statsOptions = { };
+
+        private const int StatsButtonX = 10;
+        private const int StatsButtonY = 8;
+
+        private const int StatsButtonPaddingX = 12;
+        private const int StatsButtonPaddingY = 7;
+
+        private const int StatsMenuSpacing = 2;
+        private const int StatsItemPaddingX = 12;
+        private const int StatsItemPaddingY = 8;
+
+        private readonly Color _statsBackground = Color.Black * 0.7f;
+        private readonly Color _statsHover = Color.DarkGray;
+        //private readonly Color _statsHover = Color.Gray;
+
+        private readonly Color _statsBorder = Color.Purple;
+
+        private void UpdateStatsOptions()
+        {
+            _statsOptions = new[]
+            {
+                $"Total: {_totalOreInStorage:0.0} Ores",
+                $"Storages: {_oreInStorage:0.0} Ores",
+                $"Miners: {_oreInMiner:0.0} Ores",
+                $"Belts: {_oreInBelt:0.0} Ores",
+                $"Production: {_totalOreProduction:0.0} Ore/Min",
+                $"Selected: {_selectedType}",
+                $"Buildings: {_buildings.Count}"
+            };
+        }
         private void DrawUI()
         {
-            _spriteBatch.Begin();
+            string[] allInfo = {
+                "Right Click = Delete Building",
+                "E = View Building Info",
+                "ESC = exit"
+            };
 
-            //Topbar
-            _spriteBatch.Draw(_pixel, new Rectangle(0, 0, GraphicsDevice.Viewport.Width, TopBarHeight), Color.Black * 0.6f);
-            string info = $"Lager: {_totalOreInStorage:0.0} Erz    |    Auswahl: {_selectedType}    |    Rechtsklick = entfernen, ESC = beenden";
-            _spriteBatch.DrawString(_font, info, new Vector2(10, 10), Color.White);
+            _spriteBatch.Begin();
+            UpdateStatsOptions();
+
+            string selectedText = _statsOptions[_statsSelectedIndex];
+
+            Vector2 buttonTextSize = _font.MeasureString(selectedText);
+
+            int buttonWidth = (int)buttonTextSize.X + 45;
+            int buttonHeight = (int)buttonTextSize.Y + 14;
+
+            Rectangle statsButton = new Rectangle(
+                10,
+                8,
+                buttonWidth,
+                buttonHeight
+            );
+
+            MouseState mouse = Mouse.GetState();
+
+            bool buttonHovered = statsButton.Contains(mouse.Position);
+
+            _spriteBatch.Draw(
+                _pixel,
+                statsButton,
+                buttonHovered
+                    ? Color.DarkGray
+                    : Color.Black
+            );
+
+            DrawRectangleBorder(
+                statsButton,
+                1,
+                Color.Purple
+            );
+
+            _spriteBatch.DrawString(
+                _font,
+                selectedText,
+                new Vector2(
+                    statsButton.X + 12,
+                    statsButton.Y + 7
+                ),
+                Color.White
+            );
+
+            DrawDropdownArrow(
+                statsButton,
+                _statsDropdownOpen
+            );
+
+            // Other Information
+            string info = "";
+
+            foreach (string item in allInfo)
+            {
+                info += item;
+                if (item != allInfo.Last())
+                    info += "       |       ";
+            }
+
+            int infoX = statsButton.Right + 10;
+            int infoWidth =
+                GraphicsDevice.Viewport.Width -
+                infoX -
+                10;
+
+            Rectangle infoBox = new Rectangle(
+                infoX,
+                8,
+                infoWidth,
+                buttonHeight
+            );
+
+            bool infoHovered = infoBox.Contains(mouse.Position);
+
+            _spriteBatch.Draw(
+                _pixel,
+                infoBox,
+                Color.Black
+            );
+
+            DrawRectangleBorder(
+                infoBox,
+                1,
+                Color.Purple
+            );
+
+            Vector2 infoSize = _font.MeasureString(info);
+
+            _spriteBatch.DrawString(
+                _font,
+                info,
+                new Vector2(
+                    infoBox.X + 12,
+                    infoBox.Y +
+                    (infoBox.Height - infoSize.Y) / 2f
+                ),
+                Color.LightGray
+            );
+
+
+            if (_statsDropdownOpen)
+            {
+                DrawStatsDropdown(
+                    statsButton,
+                    GraphicsDevice.Viewport
+                );
+            }
 
             //Building Btns
             DrawToolbarButton(0, BuildingType.Miner, Color.OrangeRed, "1");
@@ -760,6 +1326,239 @@ namespace NexaForge
 
             GraphicsDevice.DepthStencilState = DepthStencilState.Default;
             GraphicsDevice.BlendState = BlendState.Opaque;
+        }
+
+        private void DrawDropdownArrow(
+            Rectangle button,
+            bool open)
+        {
+            int arrowX = button.Right - 17;
+            int arrowY = button.Y + button.Height / 2;
+
+            if (open)
+            {
+                _spriteBatch.Draw(
+                    _pixel,
+                    new Rectangle(
+                        arrowX,
+                        arrowY - 1,
+                        10,
+                        2
+                    ),
+                    Color.LightGray
+                );
+
+                _spriteBatch.Draw(
+                    _pixel,
+                    new Rectangle(
+                        arrowX + 2,
+                        arrowY - 3,
+                        6,
+                        2
+                    ),
+                    Color.LightGray
+                );
+
+                _spriteBatch.Draw(
+                    _pixel,
+                    new Rectangle(
+                        arrowX + 4,
+                        arrowY - 5,
+                        2,
+                        2
+                    ),
+                    Color.LightGray
+                );
+            }
+            else
+            {
+                _spriteBatch.Draw(
+                    _pixel,
+                    new Rectangle(
+                        arrowX,
+                        arrowY,
+                        10,
+                        2
+                    ),
+                    Color.LightGray
+                );
+
+                _spriteBatch.Draw(
+                    _pixel,
+                    new Rectangle(
+                        arrowX + 2,
+                        arrowY + 2,
+                        6,
+                        2
+                    ),
+                    Color.LightGray
+                );
+
+                _spriteBatch.Draw(
+                    _pixel,
+                    new Rectangle(
+                        arrowX + 4,
+                        arrowY + 4,
+                        2,
+                        2
+                    ),
+                    Color.LightGray
+                );
+            }
+        }
+
+        private void DrawStatsDropdown(
+            Rectangle button,
+            Viewport viewport)
+        {
+            int maxTextWidth = 0;
+            int itemHeight = 0;
+
+            for (int i = 0; i < _statsOptions.Length; i++)
+            {
+                Vector2 size =
+                    _font.MeasureString(_statsOptions[i]);
+
+                maxTextWidth = Math.Max(
+                    maxTextWidth,
+                    (int)size.X
+                );
+
+                itemHeight = Math.Max(
+                    itemHeight,
+                    (int)size.Y + 16
+                );
+            }
+
+            int menuWidth = maxTextWidth + 24;
+
+            int menuHeight =
+                _statsOptions.Length * itemHeight +
+                (_statsOptions.Length - 1) * 2;
+
+            int menuX = button.X;
+            int menuY = button.Bottom + 4;
+
+            if (menuX + menuWidth > viewport.Width)
+            {
+                menuX = viewport.Width - menuWidth - 5;
+            }
+
+            if (menuY + menuHeight > viewport.Height)
+            {
+                menuY = button.Y - menuHeight - 4;
+            }
+
+            Rectangle menu = new Rectangle(
+                menuX,
+                menuY,
+                menuWidth,
+                menuHeight
+            );
+
+            _spriteBatch.Draw(
+                _pixel,
+                menu,
+                Color.Black
+            );
+
+            DrawRectangleBorder(
+                menu,
+                1,
+                Color.Purple
+            );
+
+            for (int i = 0; i < _statsOptions.Length; i++)
+            {
+                Rectangle item = new Rectangle(
+                    menuX,
+                    menuY + i * (itemHeight + 2),
+                    menuWidth,
+                    itemHeight
+                );
+
+                bool hovered =
+                    item.Contains(Mouse.GetState().Position);
+
+                if (hovered)
+                {
+                    _spriteBatch.Draw(
+                        _pixel,
+                        item,
+                        Color.DarkGray
+                    );
+                }
+
+                Vector2 textSize =
+                    _font.MeasureString(
+                        _statsOptions[i]
+                    );
+
+                _spriteBatch.DrawString(
+                    _font,
+                    _statsOptions[i],
+                    new Vector2(
+                        item.X + 12,
+                        item.Y +
+                        (item.Height - textSize.Y) / 2f
+                    ),
+                    Color.White
+                );
+            }
+        }
+
+        private void DrawRectangleBorder(
+            Rectangle rectangle,
+            int thickness,
+            Color color)
+        {
+            // Oben
+            _spriteBatch.Draw(
+                _pixel,
+                new Rectangle(
+                    rectangle.X,
+                    rectangle.Y,
+                    rectangle.Width,
+                    thickness
+                ),
+                color
+            );
+
+            // Unten
+            _spriteBatch.Draw(
+                _pixel,
+                new Rectangle(
+                    rectangle.X,
+                    rectangle.Bottom - thickness,
+                    rectangle.Width,
+                    thickness
+                ),
+                color
+            );
+
+            // Links
+            _spriteBatch.Draw(
+                _pixel,
+                new Rectangle(
+                    rectangle.X,
+                    rectangle.Y,
+                    thickness,
+                    rectangle.Height
+                ),
+                color
+            );
+
+            // Rechts
+            _spriteBatch.Draw(
+                _pixel,
+                new Rectangle(
+                    rectangle.Right - thickness,
+                    rectangle.Y,
+                    thickness,
+                    rectangle.Height
+                ),
+                color
+            );
         }
 
         private void DrawToolbarButton(int index, BuildingType type, Color color, string key)
@@ -790,10 +1589,16 @@ namespace NexaForge
             DrawCube(new Vector3(0, -0.05f, 0), size, Color.DarkGreen);
         }
 
-        private void DrawCube(Vector3 position, Vector3 size, Color color)
+        public void DrawCube(
+            Vector3 position,
+            Vector3 size,
+            Color color,
+            float alpha = 1f)
         {
             _effect.World = Matrix.CreateScale(size) * Matrix.CreateTranslation(position);
+
             _effect.DiffuseColor = color.ToVector3();
+            _effect.Alpha = alpha;
 
             GraphicsDevice.SetVertexBuffer(_cubeVertexBuffer);
             GraphicsDevice.Indices = _cubeIndexBuffer;
@@ -801,7 +1606,13 @@ namespace NexaForge
             foreach (var pass in _effect.CurrentTechnique.Passes)
             {
                 pass.Apply();
-                GraphicsDevice.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, 12);
+
+                GraphicsDevice.DrawIndexedPrimitives(
+                    PrimitiveType.TriangleList,
+                    0,
+                    0,
+                    12
+                );
             }
         }
     }
