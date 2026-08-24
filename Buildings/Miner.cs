@@ -9,6 +9,7 @@ namespace NexaForge
         public override BuildingType Type => BuildingType.Miner;
         public override Color Color => Color.OrangeRed;
         public override String Name => "Miner";
+        public override String Status { get; set; } = "Idle";
 
         public float OreBuffer { get; private set; }
         public float MineRatePerSecond { get; set; } = 1f;
@@ -19,11 +20,13 @@ namespace NexaForge
             
         }
 
-        // Füllt den Puffer mit tatsächlich aus dem Boden gefördertem Erz (siehe Game1.SimulateFactory).
-        // Es gibt hier keine automatische, unendliche Produktion mehr - das Erz kommt aus VoxelGrid.
         public void AddOre(float amount)
         {
             OreBuffer = Math.Min(BufferCapacity, OreBuffer + amount);
+            if (BufferCapacity > OreBuffer + amount)
+                this.setStatus(3);
+            else
+                this.setStatus(0);
         }
 
         public float getCapacityLeft()
@@ -31,12 +34,27 @@ namespace NexaForge
             return BufferCapacity - OreBuffer;
         }
 
-        // Nimmt bis zu 'amount' Erz aus dem Puffer, gibt zurück, wie viel tatsächlich entnommen wurde
         public float Extract(float amount)
         {
             float taken = Math.Min(amount, OreBuffer);
             OreBuffer -= taken;
             return taken;
+        }
+
+        public float getRate(float dt, VoxelGrid grid) 
+        {
+            float wanted = Math.Min(MineRatePerSecond * dt, BufferCapacity - OreBuffer);
+
+            if (OreBuffer < BufferCapacity &&
+                grid.ExtractOre(GridX, GridZ, wanted, this) > 0)
+                return MineRatePerSecond * 60f;
+            else
+                return 0.0f;
+        }
+
+        public override void Draw(Game1 game, bool isPreview)
+        {
+             
         }
     }
 }

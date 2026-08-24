@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using FactoryGame.Engine;
+using System.Diagnostics;
 
 namespace NexaForge
 {
@@ -19,6 +20,19 @@ namespace NexaForge
 
         public abstract BuildingType Type { get; }
         public abstract Color Color { get; }
+        public abstract string Status { get; set; }
+
+        public abstract void Draw(Game1 game, bool isPreview);
+
+
+        private string[] allStatus = { 
+            "Idle",
+            "Working",
+            "Maintenance",
+            "Mining",
+            "Moving",
+            "Storing"
+        };
 
         protected Building(int gridX, int gridZ, Vector3 worldPosition)
         {
@@ -27,7 +41,10 @@ namespace NexaForge
             Transform.Position = worldPosition;
         }
 
-        // Wird jeden Frame für die Fabriklogik aufgerufen (Fördern, Produzieren, ...)
         public virtual void Tick(float deltaSeconds) { }
+
+        public void setStatus(int index) { 
+            Status = allStatus[index];
+        }
     }
 }
