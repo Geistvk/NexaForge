@@ -3,23 +3,30 @@ using System;
 
 namespace NexaForge
 {
-    // Transportiert eine Ressourcenmenge in eine Richtung zur nächsten Zelle
     public class Belt : Building
     {
         public override BuildingType Type => BuildingType.Belt;
         public override Color Color => Color.SlateGray;
         public override String Name => "Belt";
         public override String Status { get; set; } = "Idle";
+        public override buildingOffset offset => new buildingOffset(0.3f, 0.4f);
 
-        // Förderrichtung, z.B. (1,0,0) = in Richtung +X (eine Rasterzelle weiter)
         public Vector3 Direction { get; set; } = new Vector3(1, 0, 0);
         public float ItemAmount { get; set; }
         public float Capacity { get; set; } = 5f;
-        public float Speed { get; set; } = 2f; // Einheiten pro Sekunde
+        public float Speed { get; set; } = 2f;
 
         public Belt(int gridX, int gridZ, Vector3 worldPosition)
             : base(gridX, gridZ, worldPosition) {
-            
+            upgradeLevel = 0;
+            modelPath = "Models/WoodHouse";
+            upgradeModel();
+        }
+
+        public override void upgradeModel()
+        {
+            upgradeLevel++;
+            Model = modelPath + "_" + upgradeLevel.ToString();
         }
 
         public void mineItem(float dt, Miner source) {
@@ -56,11 +63,6 @@ namespace NexaForge
                 this.setStatus(4);
             else
                 this.setStatus(0);
-        }
-
-        public override void Draw(Game1 game, bool isPreview)
-        {
-
         }
     }
 }

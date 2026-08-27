@@ -3,20 +3,29 @@ using Microsoft.Xna.Framework;
 
 namespace NexaForge
 {
-    // Sammelt Ressourcen, die über Bänder angeliefert werden
     public class Storage : Building
     {
         public override BuildingType Type => BuildingType.Storage;
         public override Color Color => Color.SaddleBrown;
         public override String Name => "Storage";
         public override String Status { get; set; } = "Idle";
+        public override buildingOffset offset => new buildingOffset(0.3f, 0.4f);
 
         public float Stored { get; private set; }
         public float Capacity { get; set; } = 200f;
 
         public Storage(int gridX, int gridZ, Vector3 worldPosition)
-            : base(gridX, gridZ, worldPosition) {
-            
+            : base(gridX, gridZ, worldPosition)
+        {
+            upgradeLevel = 0;
+            modelPath = "Models/WoodHouse";
+            upgradeModel();
+        }
+
+        public override void upgradeModel()
+        {
+            upgradeLevel++;
+            Model = modelPath + "_" + upgradeLevel.ToString();
         }
 
         public float Deposit(float amount)
@@ -42,7 +51,7 @@ namespace NexaForge
                 this.setStatus(0);
         }
 
-        public override void Draw(Game1 game, bool isPreview = false)
+        public void Draw(Game1 game, bool isPreview = false)
         {
             Vector3 p = Transform.Position;
             p.Y -= 1f;

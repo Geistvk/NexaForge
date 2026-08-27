@@ -1,15 +1,25 @@
-using System;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using System;
+using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
+
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.Xna.Framework.Input;
+using FactoryGame.Engine;
+using System.Diagnostics;
+using System.Reflection.Metadata.Ecma335;
 
 namespace NexaForge
 {
-    // Fördert automatisch Erz, das anschließend über Bänder transportiert wird
     public class Miner : Building
     {
         public override BuildingType Type => BuildingType.Miner;
         public override Color Color => Color.OrangeRed;
         public override String Name => "Miner";
         public override String Status { get; set; } = "Idle";
+        public override buildingOffset offset => new buildingOffset(0.8f, 0.8f);
 
         public float OreBuffer { get; private set; }
         public float MineRatePerSecond { get; set; } = 1f;
@@ -17,7 +27,15 @@ namespace NexaForge
 
         public Miner(int gridX, int gridZ, Vector3 worldPosition)
             : base(gridX, gridZ, worldPosition) {
-            
+            upgradeLevel = 0;
+            modelPath = "Models/Miner";
+            upgradeModel();
+        }
+
+        public override void upgradeModel() 
+        {
+            upgradeLevel++;
+            Model = modelPath + "_" + upgradeLevel.ToString();
         }
 
         public void AddOre(float amount)
@@ -50,11 +68,6 @@ namespace NexaForge
                 return MineRatePerSecond * 60f;
             else
                 return 0.0f;
-        }
-
-        public override void Draw(Game1 game, bool isPreview)
-        {
-             
         }
     }
 }
