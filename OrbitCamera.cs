@@ -5,7 +5,6 @@ using Microsoft.Xna.Framework.Input;
 
 namespace NexaForge
 {
-    // Eine Kamera, die sich um einen Zielpunkt dreht - typisch für Aufbau-/Strategiespiele
     public class OrbitCamera
     {
         public Vector3 Target = Vector3.Zero;
@@ -41,14 +40,13 @@ namespace NexaForge
                 0.1f,
                 2000f);
 
-        // Steuerung: rechte Maustaste + Bewegung = drehen, Mausrad = zoomen, WASD = Zielpunkt verschieben
         public void HandleInput(GameTime gameTime)
         {
             var mouse = Mouse.GetState();
             var keyboard = Keyboard.GetState();
             float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
-            if (mouse.RightButton == ButtonState.Pressed && _prevMouse.RightButton == ButtonState.Pressed)
+            if (mouse.MiddleButton == ButtonState.Pressed && _prevMouse.MiddleButton == ButtonState.Pressed)
             {
                 int dx = mouse.X - _prevMouse.X;
                 int dy = mouse.Y - _prevMouse.Y;
@@ -75,7 +73,7 @@ namespace NexaForge
                 Target -= move * dt * 15f * (Distance / 20f);
             }
 
-            if (mouse.MiddleButton == ButtonState.Pressed && _prevMouse.MiddleButton == ButtonState.Pressed)
+            if (mouse.RightButton == ButtonState.Pressed && _prevMouse.RightButton == ButtonState.Pressed)
             {
                 int dx = mouse.X - _prevMouse.X;
                 int dz = mouse.Y - _prevMouse.Y;

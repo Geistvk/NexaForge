@@ -56,7 +56,9 @@ namespace NexaForge
 
         private BuildingsGui _buildingsGui;
 
-        private Model _factoryModel;
+        private float _buildRot = 0f;
+
+        private Dictionary<string, Keys> _Keys = new();
 
         public Game1()
         {
@@ -74,8 +76,6 @@ namespace NexaForge
         {
             _camera.Target = Vector3.Zero;
 
-            // Prozedurale Weltgenerierung: Seed fest oder z.B. Environment.TickCount für
-            // jedes Mal eine andere Welt
             _grid.GenerateOreDeposits(seed: 12345);
 
             base.Initialize();
@@ -83,7 +83,17 @@ namespace NexaForge
 
         protected override void LoadContent()
         {
-            _factoryModel = Content.Load<Model>("Models/WoodHouse");
+            _Keys = new Dictionary<string, Keys> {
+                { "Close", Keys.Escape},
+                { "SelNone", Keys.D0 },
+                { "SelMiner", Keys.D1 },
+                { "SelBelt", Keys.D2 },
+                { "SelStorage", Keys.D3 },
+                { "RotClock", Keys.R },
+                { "RotCountClock", Keys.F },
+                { "ToggleHover", Keys.LeftShift },
+                { "OpenBuildInfo", Keys.E }
+            };
 
             _effect = new BasicEffect(GraphicsDevice)
             {
@@ -104,7 +114,6 @@ namespace NexaForge
 
         private void CreateCubeGeometry()
         {
-            // Ein Einheitswürfel (Grundfläche 1x1, Höhe 1), wird beim Zeichnen skaliert/eingefärbt
             var positions = new[]
             {
                 new Vector3(-0.5f, 0, -0.5f), new Vector3(0.5f, 0, -0.5f),
@@ -117,12 +126,12 @@ namespace NexaForge
 
             short[] indices =
             {
-                0,1,2, 0,2,3, // vorne
-                1,5,6, 1,6,2, // rechts
-                5,4,7, 5,7,6, // hinten
-                4,0,3, 4,3,7, // links
-                3,2,6, 3,6,7, // oben
-                4,5,1, 4,1,0  // unten
+                0,1,2, 0,2,3, // Front
+                1,5,6, 1,6,2, // Right
+                5,4,7, 5,7,6, // Back
+                4,0,3, 4,3,7, // Left
+                3,2,6, 3,6,7, // Top
+                4,5,1, 4,1,0  // Down
             };
 
             _cubeVertexBuffer = new VertexBuffer(GraphicsDevice, typeof(VertexPositionColor), vertices.Length, BufferUsage.WriteOnly);
@@ -180,7 +189,7 @@ namespace NexaForge
 
         protected override void Update(GameTime gameTime)
         {
-            if (Keyboard.GetState().IsKeyDown(Keys.Escape))
+            if (Keyboard.GetState().IsKeyDown(_Keys["Close"]))
                 Exit();
 
             _camera.HandleInput(gameTime);
@@ -355,11 +364,6 @@ namespace NexaForge
             }
         }
 
-        private bool canRotateBuilding(BuildingType buildingType)
-        {
-            return buildingType == BuildingType.Belt;
-        }
-
         private void toggleBuildingGui(Building existing) {
             if (!_buildingsGui.IsOpen && _highlightedBuilding != existing)
             {
@@ -378,22 +382,35 @@ namespace NexaForge
 
         private void HandleBuildingSelection()
         {
+            var b = _previewBuilding;
             var keyboard = Keyboard.GetState();
             var mouse = Mouse.GetState();
-            if (IsPressed(keyboard, Keys.D0)) _selectedType = BuildingType.None;
-            if (IsPressed(keyboard, Keys.D1)) _selectedType = BuildingType.Miner;
-            if (IsPressed(keyboard, Keys.D2)) _selectedType = BuildingType.Belt;
-            if (IsPressed(keyboard, Keys.D3)) _selectedType = BuildingType.Storage;
 
-            if (IsPressed(keyboard, Keys.R) &&
-                canRotateBuilding(_selectedType))
-            { 
-                Debug.WriteLine("Rotating the belt 90 degrees clockwise");
+            if (IsPressed(keyboard, _Keys["SelNone"]))    _selectedType = BuildingType.None;
+            if (IsPressed(keyboard, _Keys["SelMiner"]))   _selectedType = BuildingType.Miner;
+            if (IsPressed(keyboard, _Keys["SelBelt"]))    _selectedType = BuildingType.Belt;
+            if (IsPressed(keyboard, _Keys["SelStorage"])) _selectedType = BuildingType.Storage;
+
+            if (IsPressed(keyboard, _Keys["SelNone"]) ||
+                IsPressed(keyboard, _Keys["SelMiner"]) ||
+                IsPressed(keyboard, _Keys["SelBelt"]) ||
+                IsPressed(keyboard, _Keys["SelStorage"]))
+            {
+                _buildRot = 0;
             }
 
-            if (keyboard.IsKeyDown(Keys.LeftShift))
+            if (IsPressed(keyboard, _Keys["RotClock"]) ||
+                IsPressed(keyboard, _Keys["RotCountClock"]))
             {
-                //Debug.WriteLine($"Highlight: {(_highlightedBuilding == null ? "None" : _highlightedBuilding.Type.ToString())}");
+                _buildRot += IsPressed(keyboard, _Keys["RotCountClock"]) ? 90f : -90f;
+                
+                if (b != null)
+                    b.setRot(_buildRot);
+            }
+
+            if (keyboard.IsKeyDown(_Keys["ToggleHover"]))
+            {
+                //Debug.WriteLine($"Highlight: {(_highlightedBuilding == null ? "None" : _highlightedBuilding.Type.ToString())}"); 
 
                 if (TryGetGroundCell(mouse.X, mouse.Y, out int gx, out int gz) &&
                     _grid.Get(gx, gz) is Building existing)
@@ -411,7 +428,7 @@ namespace NexaForge
                 }
             }
 
-            if (IsPressed(keyboard, Keys.E))
+            if (IsPressed(keyboard, _Keys["OpenBuildInfo"]))
             {
                 if (TryGetGroundCell(mouse.X, mouse.Y, out int gx, out int gz) &&
                     _grid.Get(gx, gz) is Building existing)
@@ -454,11 +471,13 @@ namespace NexaForge
 
             DrawCube(b.Transform.Position, size, b.Color);*/
 
+            b.setRot(_buildRot);
+
             DrawModel(
-                _factoryModel,
-                b.Transform.Position,
+                Content.Load<Model>(b.Model),
                 size,
-                b.Color * 0.5f
+                b,
+                true
             );
         }
 
@@ -508,14 +527,12 @@ namespace NexaForge
                 mouse.RightButton == ButtonState.Pressed &&
                 _prevMouse.RightButton == ButtonState.Released;
 
-            // Klick auf einen der Auswahl-Buttons unten links -> nur Auswahl ändern, nicht in der Welt bauen
             if (leftClicked && TryHandleToolbarClick(mouse.X, mouse.Y))
             {
                 _prevMouse = mouse;
                 return;
             }
 
-            // Maus ist über der GUI (Infoleiste/Buttons) -> keine Platzierung/Entfernung auslösen
             if (IsMouseOverUI(mouse.X, mouse.Y))
             {
                 _prevMouse = mouse;
@@ -524,7 +541,7 @@ namespace NexaForge
 
             UpdateBuildingPreview();
 
-            // Linksklick = platzieren
+            // Left Click = Build Building
             if (leftClicked)
             {
                 if (TryGetGroundCell(mouse.X, mouse.Y, out int gx, out int gz))
@@ -543,6 +560,7 @@ namespace NexaForge
 
                         if (building != null)
                         {
+                            building.setRot(_buildRot);
                             _buildings.Add(building);
                             _grid.Place(gx, gz, building);
 
@@ -558,7 +576,7 @@ namespace NexaForge
                 }
             }
 
-            // Rechtsklick = entfernen
+            // Right Click = Delete Building
             if (rightClicked)
             {
                 if (TryGetGroundCell(mouse.X, mouse.Y, out int gx, out int gz) && _grid.Get(gx, gz) is Building existing)
@@ -602,7 +620,6 @@ namespace NexaForge
             return false;
         }
 
-        // Schießt einen Strahl von der Maus in die Szene und schneidet ihn mit der Bodenebene (y=0)
         private bool TryGetGroundCell(int screenX, int screenY, out int gx, out int gz)
         {
             gx = gz = 0;
@@ -990,24 +1007,24 @@ namespace NexaForge
             foreach (var b in _buildings)
             {
                 /*var size = new Vector3(
-                        _grid.CellSize * 0.9f,
-                        GetHeight(b),
-                        _grid.CellSize * 0.9f
-                    );
+                    _grid.CellSize * 0.9f,
+                    GetHeight(b),
+                    _grid.CellSize * 0.9f
+                );
 
-                    DrawCube(b.Transform.Position, size, b.Color);*/
+                DrawCube(b.Transform.Position, size, b.Color);*/
                 var size = new Vector3(
                     _grid.CellSize * 0.9f,
                     _grid.CellSize * 0.9f,
                     _grid.CellSize * 0.9f
                 );
 
+                //Debug.WriteLine($"Model: {(Content.Load<Model>(b.Model) == null ? "Null" : "Found")}");
+
                 DrawModel(
-                    _factoryModel,
-                    b.Transform.Position,
+                    Content.Load<Model>(b.Model),
                     size,
-                    b.Color,
-                    90f
+                    b
                 );
             }
 
@@ -1026,14 +1043,20 @@ namespace NexaForge
 
         private void DrawModel(
             Model model,
-            Vector3 position,
             Vector3 targetSize,
-            Color color,
-            float rotY = 0f)
+            Building b,
+            bool isPreview = false)
         {
+            Vector3 position = b.Transform.Position;
+            Color color = b.Color;
+            float rotY = b.buildRot;
+
+            if (isPreview)
+                color *= 0.5f;
+
             float rotationY = MathHelper.ToRadians(rotY);
-            position.Y += 0.3f;
-            targetSize /= 2;
+            position.Y += b.offset.pos;
+            targetSize *= b.offset.size;
 
             BoundingBox bounds = GetModelBounds(model);
 
@@ -1070,7 +1093,7 @@ namespace NexaForge
                     effect.Projection = _camera.GetProjection(GraphicsDevice);
 
                     effect.EnableDefaultLighting();
-                    effect.DiffuseColor = color.ToVector3();
+                    //effect.DiffuseColor = color.ToVector3();
                     effect.Alpha = color.A / 255f;
                 }
 
@@ -1512,7 +1535,7 @@ namespace NexaForge
             int thickness,
             Color color)
         {
-            // Oben
+            // Top
             _spriteBatch.Draw(
                 _pixel,
                 new Rectangle(
@@ -1524,7 +1547,7 @@ namespace NexaForge
                 color
             );
 
-            // Unten
+            // Down
             _spriteBatch.Draw(
                 _pixel,
                 new Rectangle(
@@ -1536,7 +1559,7 @@ namespace NexaForge
                 color
             );
 
-            // Links
+            // Left
             _spriteBatch.Draw(
                 _pixel,
                 new Rectangle(
@@ -1548,7 +1571,7 @@ namespace NexaForge
                 color
             );
 
-            // Rechts
+            // Right
             _spriteBatch.Draw(
                 _pixel,
                 new Rectangle(
